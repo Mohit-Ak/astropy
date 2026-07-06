@@ -72,7 +72,10 @@ def test_set_defaults_tolerates_overridden_showwarning():
     # reset must not raise LoggingError and make `import astropy` fail. The
     # third-party hook must be left in place / recoverable rather than clobbered.
     log.enable_warnings_logging()
-    sentinel = lambda *args, **kwargs: None
+
+    def sentinel(*args, **kwargs):
+        pass
+
     warnings.showwarning = sentinel
 
     # Must not raise.
