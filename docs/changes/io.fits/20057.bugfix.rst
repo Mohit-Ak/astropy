@@ -1,0 +1,5 @@
+Fixed a file handle leak in ``BinTableHDU.load()`` (and the underlying
+``dump()``) where a file opened internally from a path was not closed if
+parsing raised part way through. The internally opened data and column
+definition files are now always closed via ``try``/``finally``, even when an
+error occurs, so that on Windows the files are no longer left locked.

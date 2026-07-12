@@ -3,6 +3,7 @@
 import contextlib
 import copy
 import gc
+import os
 import pickle
 import re
 import sys
@@ -2593,6 +2594,53 @@ class TestTableFunctions(FitsTestCase):
 
         # In this particular case the record data at least should be equivalent
         assert comparerecords(tbhdu.data, new_tbhdu.data)
+
+    def test_load_closes_files_on_parse_error(self, monkeypatch):
+        """
+        Regression test for https://github.com/astropy/astropy/issues/20057
+
+        ``BinTableHDU.load()`` opens the data and column-definition files
+        internally when passed file paths.  If parsing raised before the
+        explicit ``close()`` at the end of the helper, the file handle was
+        leaked, which on Windows keeps the file locked and prevents it from
+        being removed or renamed.  The internally opened files must be closed
+        even when parsing fails.
+        """
+        datafile = self.temp("data.txt")
+        cdfile = self.temp("coldefs.txt")
+
+        with open(datafile, "w") as f:
+            f.write("1 2.0\n")
+        # A column-definition line with too few words makes _load_coldefs
+        # raise IndexError while the file is still open.
+        with open(cdfile, "w") as f:
+            f.write("ONLY_ONE_WORD\n")
+
+        # Track every file object opened by load() and assert none is leaked.
+        opened = []
+        real_open = open
+
+        def tracking_open(*args, **kwargs):
+            fileobj = real_open(*args, **kwargs)
+            opened.append(fileobj)
+            return fileobj
+
+        monkeypatch.setattr("builtins.open", tracking_open)
+
+        with pytest.raises(IndexError):
+            fits.BinTableHDU.load(datafile=datafile, cdfile=cdfile)
+
+        monkeypatch.undo()
+
+        assert opened, "load() was expected to open the coldefs file internally"
+        assert all(fileobj.closed for fileobj in opened), (
+            "BinTableHDU.load() leaked an internally opened file handle when "
+            "parsing failed"
+        )
+
+        # On Windows a leaked handle would keep the file locked; removing it
+        # here would raise PermissionError.  This should now succeed.
+        os.remove(cdfile)
 
     def test_attribute_field_shadowing(self):
         """
